@@ -1,0 +1,10 @@
+python-dotenv
+ccxt
+pybit
+pandas
+numpy
+xgboost
+scikit-learn
+matplotlib
+requests[socks]
+autopep8
