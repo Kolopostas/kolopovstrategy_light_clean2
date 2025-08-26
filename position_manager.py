@@ -5,12 +5,14 @@ import time
 from typing import Any, Dict, Optional
 
 from core.bybit_exchange import create_exchange, normalize_symbol
+from core.indicators import atr_latest_from_ohlcv
 from core.market_info import adjust_qty_price
 from core.trade_log import append_trade_event
-from core.indicators import atr_latest_from_ohlcv
 
 
-def _calc_order_qty(balance_usdt: float, price: float, risk_fraction: float, leverage: int) -> float:
+def _calc_order_qty(
+    balance_usdt: float, price: float, risk_fraction: float, leverage: int
+) -> float:
     """
     Deprecated helper (не используется с ATR‑риском).
 
@@ -42,7 +44,9 @@ def _wait_fill(ex, sym: str, order_id: str, timeout_s: int = 8) -> Dict[str, Any
     return last
 
 
-def open_position(symbol: str, side: str, price: Optional[float] = None) -> Dict[str, Any]:
+def open_position(
+    symbol: str, side: str, price: Optional[float] = None
+) -> Dict[str, Any]:
     """
     MARKET‑ордер с TP/SL и ATR‑расчётом. Игнорирует 'leverage not modified' (110043),
     помечает 10001 как retryable. Логирует: order_placed / order_filled / order_error.
@@ -133,7 +137,9 @@ def open_position(symbol: str, side: str, price: Optional[float] = None) -> Dict
 
     try:
         # Размещение
-        o = ex.create_order(sym, type="market", side=order_side, amount=qty, price=None, params=params)
+        o = ex.create_order(
+            sym, type="market", side=order_side, amount=qty, price=None, params=params
+        )
 
         # Лог: размещён
         try:

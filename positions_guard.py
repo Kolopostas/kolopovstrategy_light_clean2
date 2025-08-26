@@ -4,10 +4,11 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager, nullcontext
-
 from datetime import datetime, timezone
-from core.bybit_exchange import normalize_symbol, create_exchange
+
+from core.bybit_exchange import create_exchange, normalize_symbol
 from core.env_loader import load_and_check_env
+from core.indicators import atr_latest_from_ohlcv, compute_snapshot
 from core.market_info import (
     cancel_open_orders,
     get_balance,
@@ -15,17 +16,14 @@ from core.market_info import (
     get_symbol_price,
     has_open_position,
 )
-
 from core.predict import predict_trend, train_model_for_pair
 from core.trailing_stop import (
+    compute_atr,
+    set_stop_loss_only,
     update_trailing_for_symbol,
     verify_trailing_state,
-    set_stop_loss_only,
-    compute_atr,
 )
-
 from position_manager import open_position
-from core.indicators import compute_snapshot, atr_latest_from_ohlcv
 
 # Память о том, что безубыток уже переведён (по паре и направлению)
 _BE_DONE: dict = {}
@@ -89,9 +87,13 @@ def _maybe_breakeven(exchange, symbol: str, entry_px: float, side: str) -> None:
         return
 
     if sid in ("long", "buy"):
-        be_price = float(exchange.price_to_precision(symbol, entry_px * (1 + be_offset_pct)))
+        be_price = float(
+            exchange.price_to_precision(symbol, entry_px * (1 + be_offset_pct))
+        )
     else:
-        be_price = float(exchange.price_to_precision(symbol, entry_px * (1 - be_offset_pct)))
+        be_price = float(
+            exchange.price_to_precision(symbol, entry_px * (1 - be_offset_pct))
+        )
 
     print("[BE] move SL to", be_price)
     try:
@@ -106,8 +108,18 @@ def apply_trailing_after_entry(sym: str, signal: str, res: dict, dry_run: bool) 
     Вешает трейлинг-стоп и переводит SL в безубыток сразу после успешного входа.
     Использует update_trailing_for_symbol и _maybe_breakeven().
     """
-    if dry_run or not isinstance(res, dict) or res.get("status") in {"error", "retryable"}:
-        print("[TS_SKIP]", {"dry_run": dry_run, "status": res.get("status") if isinstance(res, dict) else "?"})
+    if (
+        dry_run
+        or not isinstance(res, dict)
+        or res.get("status") in {"error", "retryable"}
+    ):
+        print(
+            "[TS_SKIP]",
+            {
+                "dry_run": dry_run,
+                "status": res.get("status") if isinstance(res, dict) else "?",
+            },
+        )
         return
 
     try:
@@ -188,7 +200,9 @@ def main():
     parser.add_argument(
         "--threshold", type=float, default=float(os.getenv("CONF_THRESHOLD", "0.65"))
     )
-    parser.add_argument("--no-lock", action="store_true", help="Запуск без single-instance lock")
+    parser.add_argument(
+        "--no-lock", action="store_true", help="Запуск без single-instance lock"
+    )
     parser.add_argument("--timeframe", type=str, default=os.getenv("TIMEFRAME", "5m"))
     parser.add_argument(
         "--limit", type=int, default=int(os.getenv("TRAIN_LIMIT", "3000"))
@@ -255,12 +269,16 @@ def main():
                     n = cancel_open_orders(sym)
                     print(f"🧹 Отменил {n} ордер(ов).")
                 else:
-                    print("⏸ Пропускаю вход (запусти с --auto-cancel, чтобы чистить хвосты).")
+                    print(
+                        "⏸ Пропускаю вход (запусти с --auto-cancel, чтобы чистить хвосты)."
+                    )
                     continue
 
             # 2) Проверка: есть ли уже позиция?
             if args.no_pyramid and has_open_position(sym):
-                print(f"🏕 Уже есть позиция по {sym} — пирамидинг выключен (--no-pyramid). Пропуск.")
+                print(
+                    f"🏕 Уже есть позиция по {sym} — пирамидинг выключен (--no-pyramid). Пропуск."
+                )
                 continue
 
             # 3) Прогноз
@@ -271,12 +289,16 @@ def main():
             # Отладочный вывод индикаторов
             if os.getenv("DEBUG_INDICATORS", "0") == "1":
                 try:
-                    snap = compute_snapshot(sym, timeframe=args.timeframe, limit=max(args.limit, 200))
+                    snap = compute_snapshot(
+                        sym, timeframe=args.timeframe, limit=max(args.limit, 200)
+                    )
                     print("[IND]", sym, snap)
                 except Exception as _e:
                     print("[IND_ERR]", _e)
 
-            print(f"🔮 {sym} @ {price:.4f} → signal={signal} conf={conf:.2f} proba={pred.get('proba', {})}")
+            print(
+                f"🔮 {sym} @ {price:.4f} → signal={signal} conf={conf:.2f} proba={pred.get('proba', {})}"
+            )
 
             # 4) Условия входа
             if dry_run or signal not in ("long", "short") or conf < args.threshold:
@@ -290,9 +312,9 @@ def main():
             # Больше ничего не делаем: apply_trailing_after_entry() ставит трейл и переводит в BE
 
             if __name__ == "__main__":
-    # Мини-крючок, чтобы явно увидеть старт даже при ранних падениях
-               try:
-                   print(">>> starting positions_guard", flush=True)
-               except Exception:
-                   pass
-               main()
+                # Мини-крючок, чтобы явно увидеть старт даже при ранних падениях
+                try:
+                    print(">>> starting positions_guard", flush=True)
+                except Exception:
+                    pass
+                main()

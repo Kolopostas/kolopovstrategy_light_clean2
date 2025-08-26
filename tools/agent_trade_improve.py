@@ -3,6 +3,7 @@ from pathlib import Path
 
 TARGET_FILE = Path("position_manager.py")
 
+
 def main():
     use_trailing = os.getenv("USE_TRAILING_STOP", "false").lower() == "true"
 
@@ -25,7 +26,7 @@ def main():
     patched = code.replace(
         "order = ex.create_order(",
         "order = ex.create_order(\n"
-        "            params={\"reduceOnly\": False, \"timeInForce\": \"GoodTillCancel\", \"trailingStop\": True},"
+        '            params={"reduceOnly": False, "timeInForce": "GoodTillCancel", "trailingStop": True},',
     )
 
     if patched == code:
@@ -34,6 +35,7 @@ def main():
 
     TARGET_FILE.write_text(patched, encoding="utf-8")
     print(f"✅ Патч применён: trailingStop включён в {TARGET_FILE}")
+
 
 if __name__ == "__main__":
     main()

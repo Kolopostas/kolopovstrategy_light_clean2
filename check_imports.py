@@ -1,4 +1,4 @@
-import importlib 
+import importlib
 import sys
 
 mods = ["ccxt", "pybit", "xgboost", "dotenv", "requests"]

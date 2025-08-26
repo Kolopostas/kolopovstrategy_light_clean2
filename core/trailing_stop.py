@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
-import logging
 from typing import Any, Dict, List, Tuple
 
 logger = logging.getLogger("trailing_stop")
@@ -52,7 +52,9 @@ def _backoff_sleep(attempt: int) -> None:
     time.sleep(delay)
 
 
-def _fetch_ohlcv(exchange, symbol: str, timeframe: str, limit: int) -> List[List[float]]:
+def _fetch_ohlcv(
+    exchange, symbol: str, timeframe: str, limit: int
+) -> List[List[float]]:
     # Формат: [ts, open, high, low, close, volume]
     return exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
 
@@ -114,7 +116,7 @@ def set_trailing_stop_ccxt(
     *,
     category: str = "linear",
     tpsl_mode: str = "Full",
-    position_idx: int = 0,          # 0(one-way), 1(Long), 2(Short)
+    position_idx: int = 0,  # 0(one-way), 1(Long), 2(Short)
     trigger_by: str = "LastPrice",
     max_retries: int = 3,
 ) -> Dict[str, Any]:
@@ -128,11 +130,11 @@ def set_trailing_stop_ccxt(
         "symbol": bybit_symbol,
         "tpslMode": tpsl_mode,
         "positionIdx": position_idx,
-        "trailingStop": f"{callback_rate}",     # строка, % (0.1..5.0)
-        "activePrice": f"{activation_price}",   # строка
+        "trailingStop": f"{callback_rate}",  # строка, % (0.1..5.0)
+        "activePrice": f"{activation_price}",  # строка
         "tpOrderType": "Market",
         "slOrderType": "Market",
-"tpTriggerBy": trigger_by,
+        "tpTriggerBy": trigger_by,
         "slTriggerBy": trigger_by,
     }
 
@@ -155,10 +157,14 @@ def set_trailing_stop_ccxt(
             raise
 
 
-def verify_trailing_state(exchange, symbol: str, *, category: str = "linear") -> Dict[str, Any]:
+def verify_trailing_state(
+    exchange, symbol: str, *, category: str = "linear"
+) -> Dict[str, Any]:
     """GET /v5/position/list — текущее состояние позиции (есть ли trailingStop/stopLoss)."""
     bybit_symbol = _market_id(exchange, symbol)
-    return exchange.privateGetV5PositionList({"category": category, "symbol": bybit_symbol})
+    return exchange.privateGetV5PositionList(
+        {"category": category, "symbol": bybit_symbol}
+    )
 
 
 def set_stop_loss_only(
@@ -266,11 +272,21 @@ def maybe_breakeven(
     if be_mode == "atr":
         in_profit = (last - entry) if side_l in ("long", "buy") else (entry - last)
         if in_profit >= be_atr_k * atr:
-            return entry * (1.0 + be_offset_pct) if side_l in ("long", "buy") else entry * (1.0 - be_offset_pct)
+            return (
+                entry * (1.0 + be_offset_pct)
+                if side_l in ("long", "buy")
+                else entry * (1.0 - be_offset_pct)
+            )
     else:
         need = entry * be_trigger_pct
-    if (side_l in ("long", "buy") and last >= entry + need) or (side_l in ("short", "sell") and last <= entry - need):
-            return entry * (1.0 + be_offset_pct) if side_l in ("long", "buy") else entry * (1.0 - be_offset_pct)
+    if (side_l in ("long", "buy") and last >= entry + need) or (
+        side_l in ("short", "sell") and last <= entry - need
+    ):
+        return (
+            entry * (1.0 + be_offset_pct)
+            if side_l in ("long", "buy")
+            else entry * (1.0 - be_offset_pct)
+        )
     return None
 
 
@@ -296,21 +312,43 @@ def update_trailing_for_symbol(
       mode="pct":  LONG → entry*(1+up_pct) ; SHORT → entry*(1-down_pct)
     Все параметры можно задать через .env.
     """
-    activation_mode = (activation_mode or os.getenv("TS_ACTIVATION_MODE", "atr")).lower()
+    activation_mode = (
+        activation_mode or os.getenv("TS_ACTIVATION_MODE", "atr")
+    ).lower()
 
     # Параметры ATR/процентов
     atr_timeframe = atr_timeframe or os.getenv("ATR_TIMEFRAME", "5m")
     atr_period = int(atr_period or int(os.getenv("ATR_PERIOD", "14")))
     atr_k = float(atr_k or float(os.getenv("TS_ACTIVATION_ATR_K", "1.0")))
 
-    up_pct = float(os.getenv("TS_ACTIVATION_UP_PCT", "0.003")) if up_pct is None else float(up_pct)
-    down_pct = float(os.getenv("TS_ACTIVATION_DOWN_PCT", "0.003")) if down_pct is None else float(down_pct)
+    up_pct = (
+        float(os.getenv("TS_ACTIVATION_UP_PCT", "0.003"))
+        if up_pct is None
+        else float(up_pct)
+    )
+    down_pct = (
+        float(os.getenv("TS_ACTIVATION_DOWN_PCT", "0.003"))
+        if down_pct is None
+        else float(down_pct)
+    )
     min_up_pct = float(os.getenv("TS_ACTIVATION_MIN_UP_PCT", "0.001"))
     min_dn_pct = float(os.getenv("TS_ACTIVATION_MIN_DOWN_PCT", "0.001"))
 
-    auto_callback = bool(int(os.getenv("TS_CALLBACK_RATE_AUTO", "0"))) if auto_callback is None else bool(auto_callback)
-    auto_cb_k = float(os.getenv("TS_CALLBACK_RATE_ATR_K", "0.75")) if auto_cb_k is None else float(auto_cb_k)
-    callback_rate = float(os.getenv("TS_CALLBACK_RATE", "1.0")) if callback_rate is None else float(callback_rate)
+    auto_callback = (
+        bool(int(os.getenv("TS_CALLBACK_RATE_AUTO", "0")))
+        if auto_callback is None
+        else bool(auto_callback)
+    )
+    auto_cb_k = (
+        float(os.getenv("TS_CALLBACK_RATE_ATR_K", "0.75"))
+        if auto_cb_k is None
+        else float(auto_cb_k)
+    )
+    callback_rate = (
+        float(os.getenv("TS_CALLBACK_RATE", "1.0"))
+        if callback_rate is None
+        else float(callback_rate)
+    )
 
     side_l = (side or "").lower()
 
