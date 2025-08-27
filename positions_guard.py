@@ -3,6 +3,7 @@ import os
 import sys
 import tempfile
 import time
+from pathlib import Path
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
 
@@ -25,9 +26,39 @@ from core.trailing_stop import (
 )
 from position_manager import open_position
 
+# --- Маяк старта и принудительная небеферизация ---
+try:
+    # Гарантируем небеферизованный stdout в любом окружении
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+    os.environ.setdefault("PYTHONUNBUFFERED", "1")
+    # Локальный файл логов (на Railway тоже полезно)
+    Path("logs").mkdir(exist_ok=True)
+    with open("logs/boot.log", "a", encoding="utf-8") as f:
+        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] BOOT: positions_guard.py loaded, cwd={os.getcwd()}\n")
+    print("BOOT: positions_guard loaded", flush=True)
+except Exception:
+    pass
+
 # Память о том, что безубыток уже переведён (по паре и направлению)
 _BE_DONE: dict = {}
 
+
+
+# --- Heartbeat в главном цикле: добавь вспомогательную функцию ---
+_last_hb = 0.0
+def _heartbeat(msg: str = "HB"):
+    """Периодически печатает хартбит, чтобы в Railway были живые логи."""
+    global _last_hb
+    now = time.time()
+    if now - _last_hb >= 15:  # каждые ~15 секунд
+        _last_hb = now
+        print(f"{time.strftime('%H:%M:%S')} {msg}", flush=True)
+        try:
+            with open("logs/boot.log", "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+        except Exception:
+            pass
 
 def _has_trailing(exchange, symbol: str) -> bool:
     """
@@ -260,6 +291,7 @@ def main():
         for p in pairs:
             sym = normalize_symbol(p)
             price = get_symbol_price(sym)
+            _heartbeat(f"cycle {p}")
 
             # 1) Проверка: есть ли открытые ордера?
             opened = get_open_orders(sym)
