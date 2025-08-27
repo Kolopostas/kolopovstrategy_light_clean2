@@ -1,4 +1,5 @@
 from typing import Dict, List
+
 from core.bybit_exchange import create_exchange
 
 
@@ -12,7 +13,9 @@ def _sma(values: List[float], period: int) -> float:
     return sum(values[-period:]) / float(period)
 
 
-def atr_latest_from_ohlcv(ohlcv: List[List[float]], period: int = 14) -> tuple[float, float]:
+def atr_latest_from_ohlcv(
+    ohlcv: List[List[float]], period: int = 14
+) -> tuple[float, float]:
     """
     Рассчитывает ATR (Average True Range) по последним 'period' свечам
     и возвращает кортеж (atr, last_close).
@@ -106,7 +109,7 @@ def _bb_last(vals: List[float], period: int = 20) -> Dict[str, float]:
     recent_vals = vals[-period:]
     mid = sum(recent_vals) / period
     variance = sum((x - mid) ** 2 for x in recent_vals) / period
-    sd = variance ** 0.5
+    sd = variance**0.5
     up = mid + 2 * sd
     dn = mid - 2 * sd
     width = (up - dn) / mid if mid else 0.0
@@ -114,7 +117,9 @@ def _bb_last(vals: List[float], period: int = 20) -> Dict[str, float]:
     return {"mid": mid, "up": up, "dn": dn, "width": width}
 
 
-def compute_snapshot(symbol: str, timeframe: str = "5m", limit: int = 200) -> Dict[str, float]:
+def compute_snapshot(
+    symbol: str, timeframe: str = "5m", limit: int = 200
+) -> Dict[str, float]:
     """
     Возвращает краткий набор индикаторов для дальнейшего анализа или логирования:
     EMA12, EMA26, MACD, MACD‑signal (по сигнальной EMA9), RSI14, Bollinger Bands и текущее закрытие.
