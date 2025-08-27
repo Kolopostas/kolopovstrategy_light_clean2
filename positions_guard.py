@@ -3,9 +3,9 @@ import os
 import sys
 import tempfile
 import time
-from pathlib import Path
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
+from pathlib import Path
 
 from core.bybit_exchange import create_exchange, normalize_symbol
 from core.env_loader import load_and_check_env
@@ -35,7 +35,9 @@ try:
     # Локальный файл логов (на Railway тоже полезно)
     Path("logs").mkdir(exist_ok=True)
     with open("logs/boot.log", "a", encoding="utf-8") as f:
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] BOOT: positions_guard.py loaded, cwd={os.getcwd()}\n")
+        f.write(
+            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] BOOT: positions_guard.py loaded, cwd={os.getcwd()}\n"
+        )
     print("BOOT: positions_guard loaded", flush=True)
 except Exception:
     pass
@@ -44,9 +46,10 @@ except Exception:
 _BE_DONE: dict = {}
 
 
-
 # --- Heartbeat в главном цикле: добавь вспомогательную функцию ---
 _last_hb = 0.0
+
+
 def _heartbeat(msg: str = "HB"):
     """Периодически печатает хартбит, чтобы в Railway были живые логи."""
     global _last_hb
@@ -59,6 +62,7 @@ def _heartbeat(msg: str = "HB"):
                 f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
         except Exception:
             pass
+
 
 def _has_trailing(exchange, symbol: str) -> bool:
     """
