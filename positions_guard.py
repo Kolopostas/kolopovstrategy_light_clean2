@@ -3,9 +3,9 @@ import os
 import sys
 import tempfile
 import time
-from pathlib import Path
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timezone
+from pathlib import Path
 
 from core.bybit_exchange import create_exchange, normalize_symbol
 from core.env_loader import load_and_check_env
@@ -35,7 +35,9 @@ try:
     # Локальный файл логов (на Railway тоже полезно)
     Path("logs").mkdir(exist_ok=True)
     with open("logs/boot.log", "a", encoding="utf-8") as f:
-        f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] BOOT: positions_guard.py loaded, cwd={os.getcwd()}\n")
+        f.write(
+            f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] BOOT: positions_guard.py loaded, cwd={os.getcwd()}\n"
+        )
     print("BOOT: positions_guard loaded", flush=True)
 except Exception:
     pass
@@ -43,6 +45,8 @@ except Exception:
 
 # --- Heartbeat в главном цикле: добавь вспомогательную функцию ---
 _last_hb = 0.0
+
+
 def _heartbeat(msg: str = "HB"):
     """Периодически печатает хартбит, чтобы в Railway были живые логи."""
     global _last_hb
@@ -57,6 +61,8 @@ def _heartbeat(msg: str = "HB"):
             pass
 
         # --- Режим рынка: фильтр от «пилы» перед входом ---
+
+
 def _regime_ok(symbol: str, timeframe: str) -> bool:
     """
     Возвращает True, если рынок «здоровый» для входа:
@@ -95,6 +101,7 @@ def _regime_ok(symbol: str, timeframe: str) -> bool:
         # В сомнении лучше НЕ входить
         return False
 
+
 def _has_trailing(exchange, symbol: str) -> bool:
     """
     Проверяем, установлен ли уже трейлинг по символу. Использует verify_trailing_state().
@@ -110,10 +117,12 @@ def _has_trailing(exchange, symbol: str) -> bool:
         pass
     return False
 
+
 # Память о том, что безубыток уже переведён (по паре и направлению)
 _BE_DONE: dict = {}
 
 _PTP_DONE: dict = {}  # key=(symbol, side_l) -> True
+
 
 def _get_position_info(exchange, symbol: str):
     """
@@ -140,7 +149,10 @@ def _get_position_info(exchange, symbol: str):
         break
     return qty_abs, side_l, entry_px
 
-def maybe_partial_take_profit(exchange, symbol: str, entry_px: float, side: str, atr: float) -> None:
+
+def maybe_partial_take_profit(
+    exchange, symbol: str, entry_px: float, side: str, atr: float
+) -> None:
     """
     Закрывает reduceOnly частью позиции при достижении 1R (R=ATR*PARTIAL_TP_R_MULT).
     Управляется ENV:
@@ -164,7 +176,11 @@ def maybe_partial_take_profit(exchange, symbol: str, entry_px: float, side: str,
     if atr <= 0 or entry_px <= 0:
         return
     cur = get_symbol_price(symbol)
-    passed = (cur >= entry_px + atr * r_mult) if side_l == "long" else (cur <= entry_px - atr * r_mult)
+    passed = (
+        (cur >= entry_px + atr * r_mult)
+        if side_l == "long"
+        else (cur <= entry_px - atr * r_mult)
+    )
     if not passed:
         return
 
@@ -181,16 +197,29 @@ def maybe_partial_take_profit(exchange, symbol: str, entry_px: float, side: str,
 
     close_side = "sell" if side_l == "long" else "buy"
     try:
-        print("[PTP]", {
-            "symbol": symbol, "close_qty": qty_close, "close_side": close_side,
-            "cur": float(cur), "entry": float(entry_px), "atr": float(atr), "r_mult": float(r_mult)
-        })
+        print(
+            "[PTP]",
+            {
+                "symbol": symbol,
+                "close_qty": qty_close,
+                "close_side": close_side,
+                "cur": float(cur),
+                "entry": float(entry_px),
+                "atr": float(atr),
+                "r_mult": float(r_mult),
+            },
+        )
         exchange.create_order(
-            symbol, type="market", side=close_side, amount=qty_close, params={"reduceOnly": True}
+            symbol,
+            type="market",
+            side=close_side,
+            amount=qty_close,
+            params={"reduceOnly": True},
         )
         _PTP_DONE[key] = True
     except Exception as e:
         print("[PTP_ERR]", e)
+
 
 def _maybe_breakeven(exchange, symbol: str, entry_px: float, side: str) -> None:
     """
@@ -207,9 +236,9 @@ def _maybe_breakeven(exchange, symbol: str, entry_px: float, side: str) -> None:
     if _BE_DONE.get(key):
         return
 
-    be_mode = os.getenv("BE_MODE", "atr").lower()    # "atr" | "pct"
+    be_mode = os.getenv("BE_MODE", "atr").lower()  # "atr" | "pct"
     be_offset_pct = float(os.getenv("BE_OFFSET_PCT", "0.0005"))  # ваш смещение BE
-    eps = float(os.getenv("BE_EPSILON_PCT", "0.0001"))           # ~0.01% страховка
+    eps = float(os.getenv("BE_EPSILON_PCT", "0.0001"))  # ~0.01% страховка
 
     # Текущая цена
     cur = get_symbol_price(symbol)
@@ -265,20 +294,32 @@ def _maybe_breakeven(exchange, symbol: str, entry_px: float, side: str) -> None:
     except Exception as e:
         print("[BE_ERR]", e)
 
+
 def _get_entry_price(exchange, symbol: str) -> float:
-        """Возвращает entry price по символу (Bybit v5 через CCXT)."""
-        try:
-            poss = exchange.fetch_positions([symbol])
-            for p in poss or []:
-             if (p.get("symbol") or "").upper() == symbol.upper():
-                ep = p.get("entryPrice") or p.get("entry_price") or p.get("avgPrice") or 0
+    """Возвращает entry price по символу (Bybit v5 через CCXT)."""
+    try:
+        poss = exchange.fetch_positions([symbol])
+        for p in poss or []:
+            if (p.get("symbol") or "").upper() == symbol.upper():
+                ep = (
+                    p.get("entryPrice")
+                    or p.get("entry_price")
+                    or p.get("avgPrice")
+                    or 0
+                )
                 if not ep and isinstance(p.get("info"), dict):
                     info = p["info"]
-                    ep = info.get("avgPrice") or info.get("entryPrice") or info.get("entry_price") or 0
+                    ep = (
+                        info.get("avgPrice")
+                        or info.get("entryPrice")
+                        or info.get("entry_price")
+                        or 0
+                    )
                 return float(ep or 0)
-        except Exception as e:
-         print(f"[POS_ERR] fetch_positions {symbol}: {e}")
-        return 0.0
+    except Exception as e:
+        print(f"[POS_ERR] fetch_positions {symbol}: {e}")
+    return 0.0
+
 
 def apply_trailing_after_entry(sym: str, signal: str, res: dict, dry_run: bool) -> None:
     """
@@ -344,6 +385,7 @@ def single_instance_lock(name: str = "positions_guard.lock"):
         except Exception as e:
             print(f"[WARN] lock cleanup failed: {e}")
 
+
 def ensure_models_exist(pairs, timeframe="15m", limit=2000, model_dir="models"):
     """
     Проверяет наличие моделей ML для всех пар, которые мы торгуем.
@@ -380,15 +422,16 @@ def _one_pass(pairs, args, dry_run):
             if has_open_position(sym):
                 ex_chk = create_exchange()
                 atr_val, _ = compute_atr(
-                    ex_chk, sym,
+                    ex_chk,
+                    sym,
                     os.getenv("ATR_TIMEFRAME", "5m"),
-                    int(os.getenv("ATR_PERIOD", "14")),    
+                    int(os.getenv("ATR_PERIOD", "14")),
                 )
                 qty_abs, side_pos, entry_pos = _get_position_info(ex_chk, sym)
                 if qty_abs > 0 and side_pos:
                     maybe_partial_take_profit(ex_chk, sym, entry_pos, side_pos, atr_val)
         except Exception as _e:
-            print("[PTP_WRAP_ERR]", _e)            
+            print("[PTP_WRAP_ERR]", _e)
 
         # A) Обслуживание уже открытой позиции — восстановить трейл/проверить BE
         try:
@@ -401,19 +444,29 @@ def _one_pass(pairs, args, dry_run):
                             # Подсказка стороны из текущего сигнала (fallback=long)
                             side_hint = "long"
                             try:
-                                s = str(predict_trend(sym, timeframe=args.timeframe).get("signal", "long")).lower()
+                                s = str(
+                                    predict_trend(sym, timeframe=args.timeframe).get(
+                                        "signal", "long"
+                                    )
+                                ).lower()
                                 if s in ("short", "sell"):
                                     side_hint = "short"
                             except Exception:
                                 pass
-                            ts_resp = update_trailing_for_symbol(ex_loop, sym, ent, side_hint)
+                            ts_resp = update_trailing_for_symbol(
+                                ex_loop, sym, ent, side_hint
+                            )
                             print("[TS_OK]", ts_resp)
                         except Exception as e:
                             print("[TS_ERR]", e)
                     # Проверка BE
                     try:
                         side_hint = "long"
-                        s2 = str(predict_trend(sym, timeframe=args.timeframe).get("signal", "long")).lower()
+                        s2 = str(
+                            predict_trend(sym, timeframe=args.timeframe).get(
+                                "signal", "long"
+                            )
+                        ).lower()
                         if s2 in ("short", "sell"):
                             side_hint = "short"
                     except Exception:
@@ -430,12 +483,16 @@ def _one_pass(pairs, args, dry_run):
                 n = cancel_open_orders(sym)
                 print(f"🧹 Отменил {n} ордер(ов).")
             else:
-                print("⏸ Пропускаю вход (запусти с --auto-cancel, чтобы чистить хвосты).")
+                print(
+                    "⏸ Пропускаю вход (запусти с --auto-cancel, чтобы чистить хвосты)."
+                )
                 continue
 
         # C) Пирамидинг?
         if args.no_pyramid and has_open_position(sym):
-            print(f"🏕 Уже есть позиция по {sym} — пирамидинг выключен (--no-pyramid). Пропуск.")
+            print(
+                f"🏕 Уже есть позиция по {sym} — пирамидинг выключен (--no-pyramid). Пропуск."
+            )
             continue
 
         # D) Прогноз → вход
@@ -446,15 +503,19 @@ def _one_pass(pairs, args, dry_run):
         if not _regime_ok(sym, timeframe=args.timeframe):
             print("Режим рынка невалиден (BB/EMA/RSI) - пропуск входа.")
             continue
-        
+
         if os.getenv("DEBUG_INDICATORS", "0") == "1":
             try:
-                snap = compute_snapshot(sym, timeframe=args.timeframe, limit=max(args.limit, 200))
+                snap = compute_snapshot(
+                    sym, timeframe=args.timeframe, limit=max(args.limit, 200)
+                )
                 print("[IND]", sym, snap)
             except Exception as _e:
                 print("[IND_ERR]", _e)
 
-        print(f"🔮 {sym} @ {price:.4f} → signal={signal} conf={conf:.2f} proba={pred.get('proba', {})}")
+        print(
+            f"🔮 {sym} @ {price:.4f} → signal={signal} conf={conf:.2f} proba={pred.get('proba', {})}"
+        )
         if dry_run or signal not in ("long", "short") or conf < args.threshold:
             print("⏸ Условия входа не выполнены (или DRY).")
             continue
@@ -471,19 +532,44 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true", help="Один проход и выход")
-    parser.add_argument("--check-interval", type=int, default=int(os.getenv("CHECK_INTERVAL", "30")), help="Пауза между циклами (сек), если не указан --once")
+    parser.add_argument(
+        "--check-interval",
+        type=int,
+        default=int(os.getenv("CHECK_INTERVAL", "30")),
+        help="Пауза между циклами (сек), если не указан --once",
+    )
     parser.add_argument("--pair", type=str)
-    parser.add_argument("--threshold", type=float, default=float(os.getenv("CONF_THRESHOLD", "0.65")))
-    parser.add_argument("--no-lock", action="store_true", help="Запуск без single-instance lock")
+    parser.add_argument(
+        "--threshold", type=float, default=float(os.getenv("CONF_THRESHOLD", "0.65"))
+    )
+    parser.add_argument(
+        "--no-lock", action="store_true", help="Запуск без single-instance lock"
+    )
     parser.add_argument("--timeframe", type=str, default=os.getenv("TIMEFRAME", "5m"))
-    parser.add_argument("--limit", type=int, default=int(os.getenv("TRAIN_LIMIT", "3000")))
+    parser.add_argument(
+        "--limit", type=int, default=int(os.getenv("TRAIN_LIMIT", "3000"))
+    )
     parser.add_argument("--live", action="store_true", help="Разрешить реальные сделки")
-    parser.add_argument("--autotrain", action="store_true", help="Обучить недостающие модели перед стартом",)
-    parser.add_argument("--auto-cancel", action="store_true", help="Автоотмена открытых ордеров перед входом",)
-    parser.add_argument("--no-pyramid", action="store_true", help="Не входить, если уже есть позиция")
+    parser.add_argument(
+        "--autotrain",
+        action="store_true",
+        help="Обучить недостающие модели перед стартом",
+    )
+    parser.add_argument(
+        "--auto-cancel",
+        action="store_true",
+        help="Автоотмена открытых ордеров перед входом",
+    )
+    parser.add_argument(
+        "--no-pyramid", action="store_true", help="Не входить, если уже есть позиция"
+    )
     args = parser.parse_args()
     print(f">>> Pairsed args: {args}", flush=True)
-    pairs = [args.pair] if args.pair else [s.strip() for s in os.getenv("PAIRS", "").split(",") if s.strip()]
+    pairs = (
+        [args.pair]
+        if args.pair
+        else [s.strip() for s in os.getenv("PAIRS", "").split(",") if s.strip()]
+    )
     print(f">>> Pairs resolved: {pairs}", flush=True)
     if not pairs:
         raise ValueError("PAIRS пуст — заполни в .env")
@@ -494,7 +580,7 @@ def main():
     if dry_run:
         os.environ["DRY_RUN"] = "1"
     else:
-        os.environ["DRY_RUN"] = "0"    
+        os.environ["DRY_RUN"] = "0"
 
     print("──────── Kolopovstrategy guard ────────")
     print("⏱ ", datetime.now(timezone.utc).isoformat())
@@ -515,11 +601,10 @@ def main():
             print(f"⛔ Баланс ниже минимума ({min_balance} USDT) — торговля пропущена.")
             return
 
-       
         # 🔄 Новый блок вместо for p in pairs:
     interval = max(1, int(args.check_interval))
     if args.once:
-     _one_pass(pairs, args, dry_run)
+        _one_pass(pairs, args, dry_run)
     else:
         print(f"∞ Run loop started, CHECK_INTERVAL={interval}s", flush=True)
         while True:
@@ -532,6 +617,7 @@ def main():
                 time.sleep(left)
 
             # Больше ничего не делаем: apply_trailing_after_entry() ставит трейл и переводит в BE
+
 
 if __name__ == "__main__":
     try:
