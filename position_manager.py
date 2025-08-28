@@ -35,7 +35,9 @@ def _wait_fill(ex, sym: str, order_id: str, timeout_s: int = 25) -> Dict[str, An
             o = ex.fetch_order(order_id, sym) or {}
             last = o or last
             st = str((o.get("status") or "")).lower()
-            print(f"[FILL] id={order_id} status={st or 'n/a'} ts={int(time.time()-t0)}s")
+            print(
+                f"[FILL] id={order_id} status={st or 'n/a'} ts={int(time.time()-t0)}s"
+            )
             # финальные статусы у ccxt: closed / canceled / rejected
             if st in ("closed", "canceled", "rejected", "open"):
                 # 'open' — тоже ок: ордер/позиция активны
@@ -180,7 +182,9 @@ def open_position(
         # Нормализация статуса и мягкое предупреждение
         st_norm = str((o.get("status") or "")).lower()
         if st_norm not in ("closed", "open", "canceled", "rejected", "placed"):
-            print(f"[WARN] unexpected order status: {st_norm or 'n/a'} -> treating as 'placed'")
+            print(
+                f"[WARN] unexpected order status: {st_norm or 'n/a'} -> treating as 'placed'"
+            )
 
         return {
             "status": st_norm or "placed",

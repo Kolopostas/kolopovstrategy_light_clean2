@@ -29,6 +29,7 @@ def _market_id(exchange, unified_symbol: str) -> str:
     m = exchange.market(unified_symbol)
     return m["id"]
 
+
 # core/trailing_stop.py  [ADD near helpers]
 def _position_idx_for_side(side: str | None) -> int:
     """Bybit v5: 1 = Long, 2 = Short (для линейных контрактов, tpslMode=Full)."""
@@ -57,13 +58,14 @@ def _backoff_sleep(attempt: int) -> None:
     delay = min(_RATE_DELAY * (2 ** (attempt - 1)), 2.0)
     time.sleep(delay)
 
+
 def _dbg(*args, **kwargs):
     """Печататет отладку по трейлингу, если DEBUG_TRAILING=1."""
     try:
-        if os.getenv("DEBUG_TRAILING","0") == "1":
+        if os.getenv("DEBUG_TRAILING", "0") == "1":
             print(*args, **kwargs, flush=True)
     except Exception:
-        pass        
+        pass
 
 
 def _fetch_ohlcv(
@@ -150,8 +152,8 @@ def set_trailing_stop_ccxt(
         "symbol": bybit_symbol,
         "tpslMode": tpsl_mode,
         "positionIdx": str(position_idx),
-        "trailingStop": f"{callback_rate}",       # строка, % (0.1..5.0)
-        "activePrice": f"{activation_price}",     # строка
+        "trailingStop": f"{callback_rate}",  # строка, % (0.1..5.0)
+        "activePrice": f"{activation_price}",  # строка
         "tpOrderType": "Market",
         "slOrderType": "Market",
         "tpTriggerBy": trigger_by,
@@ -165,7 +167,13 @@ def set_trailing_stop_ccxt(
             _assert_ok(resp)
             return resp
         except Exception as e:
-            logger.debug("trailing_stop retry %s/%s for %s: %s", attempt, max_retries, payload.get("symbol"), e)
+            logger.debug(
+                "trailing_stop retry %s/%s for %s: %s",
+                attempt,
+                max_retries,
+                payload.get("symbol"),
+                e,
+            )
             if attempt >= max_retries:
                 raise
             _backoff_sleep(attempt)
@@ -217,11 +225,16 @@ def set_stop_loss_only(
             _assert_ok(resp)
             return resp
         except Exception as e:
-            logger.debug("stop_loss_only %s/%s for %s: %s", attempt, max_retries, payload.get("symbol"), e)
+            logger.debug(
+                "stop_loss_only %s/%s for %s: %s",
+                attempt,
+                max_retries,
+                payload.get("symbol"),
+                e,
+            )
             if attempt >= max_retries:
                 raise
             _backoff_sleep(attempt)
-
 
 
 def move_stop_loss(
@@ -341,7 +354,8 @@ def update_trailing_for_symbol(
     Все параметры можно задать через .env.
     """
     activation_mode = (
-        activation_mode or os.getenv("TS_ACTIVATION_MODE", "atr")).lower()
+        activation_mode or os.getenv("TS_ACTIVATION_MODE", "atr")
+    ).lower()
 
     # Параметры ATR/процентов
     atr_timeframe = atr_timeframe or os.getenv("ATR_TIMEFRAME", "5m")
@@ -379,7 +393,7 @@ def update_trailing_for_symbol(
 
     side_l = (side or "").lower()
 
-   # --- Расчёт активации и шага ---
+    # --- Расчёт активации и шага ---
     active = None
     cb_pct = None
 
@@ -469,5 +483,5 @@ def update_trailing_for_symbol(
         tpsl_mode="Full",
         position_idx=None,
         trigger_by="LastPrice",
-        side=side
+        side=side,
     )
