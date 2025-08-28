@@ -23,25 +23,32 @@ def _calc_order_qty(
     return (notional / price) if price > 1e-12 else 0.0
 
 
-def _wait_fill(ex, sym: str, order_id: str, timeout_s: int = 8) -> Dict[str, Any]:
+def _wait_fill(ex, sym: str, order_id: str, timeout_s: int = 25) -> Dict[str, Any]:
     """
-    Ожидание исполнения ордера best‑effort: опрос раз в 0.5с до timeout_s.
-    Возвращает последний известный статус ордера.
+    Ожидаем финальный статус ордера до timeout_s.
+    Логируем промежуточные статусы. Если биржа не дала финал — возвращаем фолбэк 'placed'.
     """
     t0 = time.time()
-    last = {}
+    last: Dict[str, Any] = {}
     while time.time() - t0 < timeout_s:
         try:
-            o = ex.fetch_order(order_id, sym)
+            o = ex.fetch_order(order_id, sym) or {}
             last = o or last
-            st = (o.get("status") or "").lower()
-            if st in ("closed", "canceled", "rejected"):
+            st = str((o.get("status") or "")).lower()
+            print(f"[FILL] id={order_id} status={st or 'n/a'} ts={int(time.time()-t0)}s")
+            # финальные статусы у ccxt: closed / canceled / rejected
+            if st in ("closed", "canceled", "rejected", "open"):
+                # 'open' — тоже ок: ордер/позиция активны
                 return o
-        except Exception:
-            # игнорируем разовые сбои сети/таймауты
+        except Exception as _e:
+            # сеть/таймаут — пропускаем одной строкой; продолжаем ждать
             pass
         time.sleep(0.5)
-    return last
+
+    # Фолбэк: биржа не успела ответить, но id известен
+    if last:
+        return last
+    return {"status": "placed", "id": order_id, "symbol": sym}
 
 
 def open_position(
@@ -163,14 +170,20 @@ def open_position(
         except Exception as _e:
             print("[WARN] trade-log placed:", _e)
 
-        # Дождаться исполнения (best‑effort)
         oid = o.get("id") or o.get("orderId")
         if oid:
             o = _wait_fill(ex, sym, oid)
+        else:
+            # редкий случай — ccxt не вернул id; всё равно вернём факт размещения
+            o = {"status": (o.get("status") or "placed"), "symbol": sym}
 
-        # Успех
+        # Нормализация статуса и мягкое предупреждение
+        st_norm = str((o.get("status") or "")).lower()
+        if st_norm not in ("closed", "open", "canceled", "rejected", "placed"):
+            print(f"[WARN] unexpected order status: {st_norm or 'n/a'} -> treating as 'placed'")
+
         return {
-            "status": (o.get("status") or "unknown"),
+            "status": st_norm or "placed",
             "order": o,
             "qty": qty,
             "price": px,

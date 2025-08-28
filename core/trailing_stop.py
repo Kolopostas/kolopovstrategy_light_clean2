@@ -29,6 +29,12 @@ def _market_id(exchange, unified_symbol: str) -> str:
     m = exchange.market(unified_symbol)
     return m["id"]
 
+# core/trailing_stop.py  [ADD near helpers]
+def _position_idx_for_side(side: str | None) -> int:
+    """Bybit v5: 1 = Long, 2 = Short (для линейных контрактов, tpslMode=Full)."""
+    s = (side or "").lower()
+    return 1 if s in ("long", "buy") else 2
+
 
 def _assert_ok(resp: Dict[str, Any]) -> None:
     """
@@ -50,6 +56,14 @@ def _backoff_sleep(attempt: int) -> None:
     """Экспоненциальный бэкофф, но не больше 2с."""
     delay = min(_RATE_DELAY * (2 ** (attempt - 1)), 2.0)
     time.sleep(delay)
+
+def _dbg(*args, **kwargs):
+    """Печататет отладку по трейлингу, если DEBUG_TRAILING=1."""
+    try:
+        if os.getenv("DEBUG_TRAILING","0") == "1":
+            print(*args, **kwargs, flush=True)
+    except Exception:
+        pass        
 
 
 def _fetch_ohlcv(
@@ -108,6 +122,7 @@ def compute_atr(
 # ---------------------------------------------------------------------
 # Низкоуровневые врапперы Bybit v5 (через ccxt)
 # ---------------------------------------------------------------------
+# core/trailing_stop.py  [REPLACE function set_trailing_stop_ccxt]
 def set_trailing_stop_ccxt(
     exchange,
     symbol: str,
@@ -116,45 +131,44 @@ def set_trailing_stop_ccxt(
     *,
     category: str = "linear",
     tpsl_mode: str = "Full",
-    position_idx: int = 0,  # 0(one-way), 1(Long), 2(Short)
+    position_idx: int | None = None,  # 0/None(one-way), 1(Long), 2(Short)
     trigger_by: str = "LastPrice",
     max_retries: int = 3,
+    side: str | None = None,  # <--- NEW: если задано, переопределим position_idx
 ) -> Dict[str, Any]:
     """
     POST /v5/position/trading-stop (ccxt: privatePostV5PositionTradingStop)
-    ВАЖНО: числовые параметры — строками.
+    Важно: числовые параметры — строками. Для хедж-режима обязательно positionIdx.
     """
     bybit_symbol = _market_id(exchange, symbol)
+    # Определим корректный positionIdx по стороне
+    if position_idx is None or position_idx == 0:
+        position_idx = _position_idx_for_side(side)
+
     payload = {
         "category": category,
         "symbol": bybit_symbol,
         "tpslMode": tpsl_mode,
-        "positionIdx": position_idx,
-        "trailingStop": f"{callback_rate}",  # строка, % (0.1..5.0)
-        "activePrice": f"{activation_price}",  # строка
+        "positionIdx": str(position_idx),
+        "trailingStop": f"{callback_rate}",       # строка, % (0.1..5.0)
+        "activePrice": f"{activation_price}",     # строка
         "tpOrderType": "Market",
         "slOrderType": "Market",
         "tpTriggerBy": trigger_by,
         "slTriggerBy": trigger_by,
     }
 
-    attempt = 0
-    while True:
-        attempt += 1
+    # Отправка с ретраями / backoff
+    for attempt in range(1, max_retries + 1):
         try:
-            resp = exchange.privatePostV5PositionTradingStop(payload)
+            resp = exchange.private_post_v5_position_trading_stop(payload)
             _assert_ok(resp)
-            time.sleep(_RATE_DELAY)
             return resp
         except Exception as e:
-            msg = str(e)
-            # 10006/429 — перегрузка, повторяем с бэкоффом
-            if "10006" in msg or "rate limit" in msg.lower():
-                if attempt >= max_retries:
-                    raise
-                _backoff_sleep(attempt)
-                continue
-            raise
+            logger.debug("trailing_stop retry %s/%s for %s: %s", attempt, max_retries, payload.get("symbol"), e)
+            if attempt >= max_retries:
+                raise
+            _backoff_sleep(attempt)
 
 
 def verify_trailing_state(
@@ -173,27 +187,41 @@ def set_stop_loss_only(
     stop_price: float,
     *,
     category: str = "linear",
-    position_idx: int = 0,
+    tpsl_mode: str = "Full",
+    position_idx: int | None = None,
     trigger_by: str = "LastPrice",
+    side: str | None = None,  # <--- NEW
+    max_retries: int = 3,
 ) -> Dict[str, Any]:
     """
-    Переставить только StopLoss через /v5/position/trading-stop (tpslMode=Full).
-    Удобно для перевода в безубыток.
+    Установить только SL для текущей позиции.
+    Для правильной стороны используем positionIdx (1=Long, 2=Short).
     """
     bybit_symbol = _market_id(exchange, symbol)
+    if position_idx is None or position_idx == 0:
+        position_idx = _position_idx_for_side(side)
+
     payload = {
         "category": category,
         "symbol": bybit_symbol,
-        "positionIdx": position_idx,
-        "tpslMode": "Full",
+        "tpslMode": tpsl_mode,
+        "positionIdx": str(position_idx),
         "stopLoss": f"{stop_price}",
         "slOrderType": "Market",
         "slTriggerBy": trigger_by,
     }
-    resp = exchange.privatePostV5PositionTradingStop(payload)
-    _assert_ok(resp)
-    time.sleep(_RATE_DELAY)
-    return resp
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = exchange.private_post_v5_position_trading_stop(payload)
+            _assert_ok(resp)
+            return resp
+        except Exception as e:
+            logger.debug("stop_loss_only %s/%s for %s: %s", attempt, max_retries, payload.get("symbol"), e)
+            if attempt >= max_retries:
+                raise
+            _backoff_sleep(attempt)
+
 
 
 def move_stop_loss(
@@ -313,8 +341,7 @@ def update_trailing_for_symbol(
     Все параметры можно задать через .env.
     """
     activation_mode = (
-        activation_mode or os.getenv("TS_ACTIVATION_MODE", "atr")
-    ).lower()
+        activation_mode or os.getenv("TS_ACTIVATION_MODE", "atr")).lower()
 
     # Параметры ATR/процентов
     atr_timeframe = atr_timeframe or os.getenv("ATR_TIMEFRAME", "5m")
@@ -352,7 +379,10 @@ def update_trailing_for_symbol(
 
     side_l = (side or "").lower()
 
-    # Рассчитать активатор/шаг
+   # --- Расчёт активации и шага ---
+    active = None
+    cb_pct = None
+
     if activation_mode == "atr":
         atr, _ = compute_atr(exchange, symbol, atr_timeframe, atr_period)
         if atr > 0.0:
@@ -378,13 +408,58 @@ def update_trailing_for_symbol(
             active = entry_price * (1.0 - max(min_dn_pct, down_pct))
         cb_pct = callback_rate
 
-    # Подгон к шагу цены
+    # Отладка расчёта (до округления)
+    try:
+        print(
+            "[TS_CALC]",
+            {
+                "symbol": symbol,
+                "mode": activation_mode,
+                "entry": float(entry_price),
+                "side": side_l,
+                "atr_period": atr_period,
+                "atr_tf": atr_timeframe,
+                "activation_raw": float(active),
+                "callback_pct_raw": float(cb_pct),
+            },
+            flush=True,
+        )
+    except Exception:
+        pass
+
+    # --- Подгон к шагу цены ---
     try:
         active_precise = float(exchange.price_to_precision(symbol, active))
     except Exception:
         active_precise = float(active)
 
-    # Установка трейлинга
+    # --- Кламп шага трейлинга (Bybit: 0.1..5.0 %) ---
+    try:
+        cb_pct = max(0.1, min(float(cb_pct), 5.0))
+    except Exception:
+        cb_pct = 1.0
+
+    # Отладочный снимок конечных параметров
+    try:
+        atr_dbg = None
+        if activation_mode == "atr":
+            atr_dbg, _ = compute_atr(exchange, symbol, atr_timeframe, atr_period)
+        print(
+            "[TS_PARAMS]",
+            {
+                "symbol": symbol,
+                "mode": activation_mode,
+                "entry": float(entry_price),
+                "atr": float(atr_dbg) if atr_dbg is not None else None,
+                "activePrice": float(active_precise),
+                "callback_pct": float(cb_pct),
+            },
+            flush=True,
+        )
+    except Exception as _e:
+        print("[TS_PARAMS_ERR]", _e, flush=True)
+
+    # --- Установка трейлинга ---
     return set_trailing_stop_ccxt(
         exchange=exchange,
         symbol=symbol,
@@ -392,6 +467,7 @@ def update_trailing_for_symbol(
         callback_rate=cb_pct,
         category="linear",
         tpsl_mode="Full",
-        position_idx=0,
+        position_idx=None,
         trigger_by="LastPrice",
+        side=side
     )
